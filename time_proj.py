@@ -19,8 +19,8 @@ class HyTE(Model):
 		with open(filename,'r') as filein:
 			temp = []
 			for line in filein:
-				temp = [int(x.strip()) for x in line.split()[0:3]]
-				temp.append([line.split()[3],line.split()[4]])
+				temp = [int(x.strip()) for x in line.split()[0:4]]
+				# temp.append([line.split()[3],line.split()[4]])
 				valid_triples.append(temp)
 		return valid_triples
 
@@ -44,136 +44,40 @@ class HyTE(Model):
 			yield data[start_idx : start_idx + self.p.batch_size]
 
 
-	def create_year2id(self,triple_time):
-		year2id = dict()
-		freq = ddict(int)
-		count = 0
-		year_list = []
+	def create_time2id(self,triple_time):
+		time2id = dict()
+		i = 0
+		time_list = []
 
-		for k,v in triple_time.items():
-			try:
-				start = v[0].split('-')[0]
-				end = v[1].split('-')[0]
-			except:
-				pdb.set_trace()
+		for time in triple_time:
+			time_list.append(time)
+			time2id[time] = i
+			i += 1
 
-			if start.find('#') == -1 and len(start) == 4: year_list.append(int(start))
-			if end.find('#') == -1 and len(end) ==4: year_list.append(int(end))
+		self.time_list = time_list
 
-		# for k,v in entity_time.items():
-		# 	start = v[0].split('-')[0]
-		# 	end = v[1].split('-')[0]
-			
-		# 	if start.find('#') == -1 and len(start) == 4: year_list.append(int(start))
-		# 	if end.find('#') == -1 and len(end) ==4: year_list.append(int(end))
-		# 	# if int(start) > int(end):
-		# 	# 	pdb.set_trace()
-		
-		year_list.sort()
-		for year in year_list:
-			freq[year] = freq[year] + 1
-
-		year_class =[]
-		count = 0
-		for key in sorted(freq.keys()):
-			count += freq[key]
-			if count > 300:
-				year_class.append(key)
-				count = 0
-		prev_year = 0
-		i=0
-		for i,yr in enumerate(year_class):
-			year2id[(prev_year,yr)] = i
-			prev_year = yr+1
-		year2id[(prev_year, max(year_list))] = i + 1
-		self.year_list =year_list
-		# pdb.set_trace()
-
-		# pdb.set_trace()
-		# for k,v in entity_time.items():
-		# 	if v[0] == '####-##-##' or v[1] == '####-##-##':
-		# 		continue
-		# 	if len(v[0].split('-')[0])!=4 or len(v[1].split('-')[0])!=4:
-		# 		continue
-		# 	start = v[0].split('-')[0]
-		# 	end = v[1].split('-')[0]
-		# for start in start_list:
-		# 	if start not in start_year2id:
-		# 		start_year2id[start] = count_start
-		# 		count_start+=1
-
-		# for end in end_list:
-		# 	if end not in end_year2id:
-		# 		end_year2id[end] = count_end
-		# 		count_end+=1
-		
-		return year2id
-	def get_span_ids(self, start, end):
-		start =int(start)
-		end=int(end)
-		if start > end:
-			end = YEARMAX
-
-		if start == YEARMIN:
-			start_lbl = 0
-		else:
-			for key,lbl in sorted(self.year2id.items(), key=lambda x:x[1]):
-				if start >= key[0] and start <= key[1]:
-					start_lbl = lbl
-		
-		if end == YEARMAX:
-			end_lbl = len(self.year2id.keys())-1
-		else:
-			for key,lbl in sorted(self.year2id.items(), key=lambda x:x[1]):
-				if end >= key[0] and end <= key[1]:
-					end_lbl = lbl
-		return start_lbl, end_lbl
+		return time2id
 
 	def create_id_labels(self,triple_time,dtype):
-		YEARMAX = 3000
-		YEARMIN =  -50
-		
-		inp_idx, start_idx, end_idx =[], [], []
-		
-		for k,v in triple_time.items():
-			start = v[0].split('-')[0]
-			end = v[1].split('-')[0]
-			if start == '####':
-				start = YEARMIN
-			elif start.find('#') != -1 or len(start)!=4:
-				continue
-
-			if end == '####':
-				end = YEARMAX
-			elif end.find('#')!= -1 or len(end)!=4:
-				continue
-			
-			start = int(start)
-			end = int(end)
-			
-			if start > end:
-				end = YEARMAX
-			inp_idx.append(k)
-			if start == YEARMIN:
-				start_idx.append(0)
-			else:
-				for key,lbl in sorted(self.year2id.items(), key=lambda x:x[1]):
-					if start >= key[0] and start <= key[1]:
-						start_idx.append(lbl)
-			
-			if end == YEARMAX:
-				end_idx.append(len(self.year2id.keys())-1)
-			else:
-				for key,lbl in sorted(self.year2id.items(), key=lambda x:x[1]):
-					if end >= key[0] and end <= key[1]:
-						end_idx.append(lbl)
-
-		return inp_idx, start_idx, end_idx
+		start_idx = []
+		for time in triple_time:
+			id = self.time2id[time]
+			start_idx.append(id)
+		inp_idx = [i for i in range(len(triple_time))]
+		return inp_idx, start_idx
 
 	def load_data(self):
 		triple_set = []
-		with open(self.p.triple2id,'r') as filein:
-			for line in filein:
+		# with open(self.p.triple2id,'r') as filein:
+		# 	for line in filein:
+		# 		tup = (int(line.split()[0].strip()) , int(line.split()[1].strip()), int(line.split()[2].strip()))
+		# 		triple_set.append(tup)
+		with open(self.p.dataset,'r') as filein11:
+			for line in filein11:
+				tup = (int(line.split()[0].strip()) , int(line.split()[1].strip()), int(line.split()[2].strip()))
+				triple_set.append(tup)
+		with open(self.p.test_data,'r') as filein12:
+			for line in filein12:
 				tup = (int(line.split()[0].strip()) , int(line.split()[1].strip()), int(line.split()[2].strip()))
 				triple_set.append(tup)
 		triple_set=set(triple_set)
@@ -187,26 +91,28 @@ class HyTE(Model):
 		with open(self.p.dataset,'r') as filein:
 			for line in filein:
 				train_triples.append([int(x.strip()) for x in line.split()[0:3]])
-				triple_time[count] = [x.split('-')[0] for x in line.split()[3:5]]
+				# triple_time[count] = [x.split('-')[0] for x in line.split()[3:5]]
+				triple_time[count] = int(line.split()[3])
 				count+=1
 
 
 		# self.start_time['triple'], self.end_time['triple'] = self.create_year2id(triple_time,'triple')
 
-		with open(self.p.entity2id,'r') as filein2:
+		with open(self.p.stat,'r') as filein2:
 			for line in filein2:
-				# entity_time[int(line.split('\t')[1])]=[x.split()[0] for x in line.split()[2:4]]
-				max_ent = max_ent+1
+				info = line.split()
+				max_ent = int(info[0])
+				max_rel = int(info[1])
 
-		self.year2id = self.create_year2id(triple_time)
+		self.time2id = self.create_time2id(triple_time)
 		# self.start_time['entity'], self.end_time['entity'] = self.create_year2id(entity_time,'entiy')
 		# self.inp_idx['entity'],self.start_idx['entity'], self.end_idx['entity'] = self.create_id_labels(entity_time,'entity')
-		self.inp_idx['triple'], self.start_idx['triple'], self.end_idx['triple'] = self.create_id_labels(triple_time,'triple')
+		self.inp_idx['triple'], self.start_idx['triple'] = self.create_id_labels(triple_time,'triple')
 		#pdb.set_trace()	
 		for i,ele in enumerate(self.inp_idx['entity']):
 			if self.start_idx['entity'][i] > self.end_idx['entity'][i]:
 				print(self.inp_idx['entity'][i],self.start_idx['entity'][i],self.end_idx['entity'][i])
-		self.num_class = len(self.year2id.keys())
+		self.num_class = len(self.time2id.keys())
 		
 		# for dtype in ['entity','triple']:
 		# 	self.labels[dtype] = self.getOneHot(self.start_idx[dtype],self.end_idx[dtype], self.num_class)# Representing labels by one hot notation
@@ -216,9 +122,6 @@ class HyTE(Model):
 			if i not in keep_idx:
 				del train_triples[i]
 
-		with open(self.p.relation2id, 'r') as filein3:
-			for line in filein3:
-				max_rel = max_rel +1
 		index = randint(1,len(train_triples))-1
 		
 		posh, rela, post = zip(*train_triples)
@@ -232,13 +135,13 @@ class HyTE(Model):
 		tail  =  list(tail)
 		rel   =  list(rel)
 
-		for i in range(len(posh)):
-			if self.start_idx['triple'][i] < self.end_idx['triple'][i]:
-				for j in range(self.start_idx['triple'][i] + 1,self.end_idx['triple'][i] + 1):
-					head.append(posh[i])
-					rel.append(rela[i])
-					tail.append(post[i])
-					self.start_idx['triple'].append(j)
+		# for i in range(len(posh)):
+		# 	if self.start_idx['triple'][i] < self.end_idx['triple'][i]:
+		# 		for j in range(self.start_idx['triple'][i] + 1,self.end_idx['triple'][i] + 1):
+		# 			head.append(posh[i])
+		# 			rel.append(rela[i])
+		# 			tail.append(post[i])
+		# 			self.start_idx['triple'].append(j)
 
 		self.ph, self.pt, self.r,self.nh, self.nt , self.triple_time  = [], [], [], [], [], []
 		for triple in range(len(head)):
@@ -273,13 +176,13 @@ class HyTE(Model):
 		# self.entity_time = entity_time
 		self.max_rel = max_rel
 		self.max_ent = max_ent
-		self.max_time = len(self.year2id.keys())
+		self.max_time = len(self.time2id.keys())
 		self.data = list(zip(self.ph, self.pt, self.r , self.nh, self.nt, self.triple_time))
 		self.data = self.data + self.data[0:self.p.batch_size]
 
 	def add_placeholders(self):
 		self.start_year = tf.placeholder(tf.int32, shape=[None], name = 'start_time')
-		self.end_year   = tf.placeholder(tf.int32, shape=[None],name = 'end_time')
+		# self.end_year   = tf.placeholder(tf.int32, shape=[None],name = 'end_time')
 		self.pos_head 	= tf.placeholder(tf.int32, [None,1])
 		self.pos_tail 	= tf.placeholder(tf.int32, [None,1])
 		self.rel      	= tf.placeholder(tf.int32, [None,1])
@@ -437,6 +340,7 @@ class HyTE(Model):
 			feed = self.create_feed_dict(batch)
 			l, a = sess.run([self.loss, self.train_op],feed_dict = feed)
 			# print(l,step)
+			# print(l)
 			losses.append(l)
 			# pdb.set_trace()
 		return np.mean(losses)
@@ -445,9 +349,9 @@ class HyTE(Model):
 	def fit(self, sess):
 		#self.best_val_acc, self.best_train_acc = 0.0, 0.0
 		saver = tf.train.Saver(max_to_keep=None)
-		save_dir = 'checkpoints/' + self.p.name + '/'
+		save_dir = 'checkpoints/' + self.p.data_type + '/' # + self.p.name + '/'
 		if not os.path.exists(save_dir): os.makedirs(save_dir)
-		save_dir_results = './results/'+ self.p.name + '/'
+		save_dir_results = './results/' + self.p.data_type + '/' # + self.p.name + '/'
 		if not os.path.exists(save_dir_results): os.makedirs(save_dir_results)
 		if self.p.restore:
 			save_path = os.path.join(save_dir, 'epoch_{}'.format(self.p.restore_epoch))
@@ -476,36 +380,38 @@ class HyTE(Model):
 				fileout_rel  = open(save_dir_results +'/valid_rel_pred_{}.txt'.format(epoch), 'w')
 				for i,t in enumerate(validation_data):
 					loss =np.zeros(self.max_ent)
-					start_trip 	= t[3][0].split('-')[0]
-					end_trip 	= t[3][1].split('-')[0]
-					if start_trip == '####':
-						start_trip = YEARMIN
-					elif start_trip.find('#') != -1 or len(start_trip)!=4:
-						continue
-
-					if end_trip == '####':
-						end_trip = YEARMAX
-					elif end_trip.find('#')!= -1 or len(end_trip)!=4:
-						continue
+					# start_trip 	= t[3][0].split('-')[0]
+					# end_trip 	= t[3][1].split('-')[0]
+					# if start_trip == '####':
+					# 	start_trip = YEARMIN
+					# elif start_trip.find('#') != -1 or len(start_trip)!=4:
+					# 	continue
+					#
+					# if end_trip == '####':
+					# 	end_trip = YEARMAX
+					# elif end_trip.find('#')!= -1 or len(end_trip)!=4:
+					# 	continue
 						
-					start_lbl, end_lbl = self.get_span_ids(start_trip, end_trip)
+					# start_lbl, end_lbl = self.get_span_ids(start_trip, end_trip)
+
+					start_trip = t[3]
+					start_lbl = self.time2id[start_trip]
 					if epoch == self.p.test_freq:
 						f_valid.write(str(t[0])+'\t'+str(t[1])+'\t'+str(t[2])+'\n')
 					pos_head = sess.run(self.pos ,feed_dict = { self.pos_head:  	np.array([t[0]]).reshape(-1,1), 
-															   	self.rel:       	np.array([t[1]]).reshape(-1,1), 
-															   	self.pos_tail:	np.array([t[2]]).reshape(-1,1),
-															   	self.start_year :np.array([start_lbl]*self.max_ent),
-															   	self.end_year : np.array([end_lbl]*self.max_ent),
-															   	self.mode: 			   -1,
-															   	self.pred_mode: 1,
-															   	self.query_mode: 1})
+																self.rel:       	np.array([t[1]]).reshape(-1,1),
+																self.pos_tail:	np.array([t[2]]).reshape(-1,1),
+																self.start_year :np.array([start_lbl]*self.max_ent),
+																self.mode: 			   -1,
+																self.pred_mode: 1,
+																self.query_mode: 1})
+					# self.end_year : np.array([end_lbl]*self.max_ent),
 					pos_head = np.squeeze(pos_head)
 					
 					pos_tail = sess.run(self.pos ,feed_dict = {    self.pos_head:  	np.array([t[0]]).reshape(-1,1), 
 																   self.rel:       	np.array([t[1]]).reshape(-1,1), 
 																   self.pos_tail:	np.array([t[2]]).reshape(-1,1),
 																   self.start_year :np.array([start_lbl]*self.max_ent),
-																   self.end_year : np.array([end_lbl]*self.max_ent),
 																   self.mode: 			   -1, 
 																   self.pred_mode:  -1,
 																   self.query_mode:  1})
@@ -516,7 +422,6 @@ class HyTE(Model):
 																   self.rel:       	np.array([t[1]]).reshape(-1,1), 
 																   self.pos_tail:	np.array([t[2]]).reshape(-1,1),
 																   self.start_year :np.array([start_lbl]*self.max_rel),
-																   self.end_year : np.array([end_lbl]*self.max_rel),
 																   self.mode: 			   -1, 
 																   self.pred_mode: -1,
 																   self.query_mode: -1})
@@ -535,11 +440,12 @@ class HyTE(Model):
 					f_valid.close()
 				print("Validation Ended")
 
+
 if __name__== "__main__":
 	print('here in main')
 	parser = argparse.ArgumentParser(description='HyTE')
 
-	parser.add_argument('-data_type', dest= "data_type", default ='yago', choices = ['yago','wiki_data'], help ='dataset to choose')
+	parser.add_argument('-data_type', dest= "data_type", default ='yago', choices = ['yago','wiki_data', 'ICEWS18', 'GDELT'], help ='dataset to choose')
 	parser.add_argument('-version',dest = 'version', default = 'large', choices = ['large','small'], help = 'data version to choose')
 	parser.add_argument('-test_freq', 	 dest="test_freq", 	default = 25,   	type=int, 	help='Batch size')
 	parser.add_argument('-neg_sample', 	 dest="M", 		default = 5,   	type=int, 	help='Batch size')
@@ -561,11 +467,16 @@ if __name__== "__main__":
 	parser.add_argument('-restore',	 dest="restore", 	action='store_true', 		help='Restore from the previous best saved model')
 	parser.add_argument('-res_epoch',	     dest="restore_epoch", 	default=200,   type =int,		help='Restore from the previous best saved model')
 	args = parser.parse_args()
-	args.dataset = 'data/'+ args.data_type +'/'+ args.version+'/train.txt'
-	args.entity2id = 'data/'+ args.data_type +'/'+ args.version+'/entity2id.txt'
-	args.relation2id = 'data/'+ args.data_type +'/'+ args.version+'/relation2id.txt'
-	args.test_data  =  'data/'+ args.data_type +'/'+ args.version+'/valid.txt'
-	args.triple2id  =   'data/'+ args.data_type +'/'+ args.version+'/triple2id.txt'
+	if args.data_type == 'yago' or args.data_type == 'wiki_data':
+		args.dataset = 'data/'+ args.data_type +'/'+ args.version+'/train.txt'
+		# args.entity2id = 'data/'+ args.data_type +'/'+ args.version+'/entity2id.txt'
+		# args.relation2id = 'data/'+ args.data_type +'/'+ args.version+'/relation2id.txt'
+		args.test_data  =  'data/'+ args.data_type +'/'+ args.version+'/valid.txt'
+		args.triple2id  =   'data/'+ args.data_type +'/'+ args.version+'/triple2id.txt'
+	else:
+		args.stat = 'data/' + args.data_type + '/stat.txt'
+		args.dataset = 'data/' + args.data_type + '/train2id.txt'
+		args.test_data = 'data/' + args.data_type + '/valid2id.txt'
 	if not args.restore: args.name = args.name + '_' + time.strftime("%d_%m_%Y") + '_' + time.strftime("%H:%M:%S")
 	tf.set_random_seed(args.seed)
 	random.seed(args.seed)
@@ -573,8 +484,10 @@ if __name__== "__main__":
 	set_gpu(args.gpu)
 	model  = HyTE(args)
 	print('model object created')
+	# config = tf.ConfigProto(log_device_placement=True, allow_soft_placement=True)
 	config = tf.ConfigProto()
 	config.gpu_options.allow_growth=True
+	# with tf.device('/gpu:1'):
 	with tf.Session(config=config) as sess:
 		sess.run(tf.global_variables_initializer())
 		print('enter fitting')
