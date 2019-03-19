@@ -1,0 +1,558 @@
+from models import *
+from helper import *
+from random import *
+from pprint import pprint
+import pandas as pd
+# import networkx as nx
+import scipy.sparse as sp
+import matplotlib.pyplot as plt, uuid, sys, os, time, argparse
+import pickle, pdb, operator, random, sys
+import tensorflow as tf
+from collections import defaultdict as ddict
+# from pymongo import MongoClient
+from sklearn.metrics import precision_recall_fscore_support
+
+YEARMIN = -50
+YEARMAX = 3000
+
+
+class HyTE(Model):
+    def read_valid(self, filename):
+        valid_triples = []
+        with open(filename, 'r') as filein:
+            temp = []
+            for line in filein:
+                temp = [int(x.strip()) for x in line.split()[0:4]]
+                # temp.append([line.split()[3],line.split()[4]])
+                valid_triples.append(temp)
+        return valid_triples
+
+    def getOneHot(self, start_data, end_data, num_class):
+        temp = np.zeros((len(start_data), num_class), np.float32)
+        for i, ele in enumerate(start_data):
+            if end_data[i] >= start_data[i]:
+                temp[i, start_data[i]:end_data[i] + 1] = 1 / (end_data[i] + 1 - start_data[i])
+            else:
+                pdb.set_trace()
+        return temp
+
+    def getBatches(self, data, shuffle=True):
+        if shuffle: random.shuffle(data)
+        num_batches = len(data) // self.p.batch_size
+
+        for i in range(num_batches):
+            start_idx = i * self.p.batch_size
+            yield data[start_idx: start_idx + self.p.batch_size]
+
+    def create_time2id(self, triple_time):
+        time2id = dict()
+        i = 0
+        time_list = []
+
+        for time in triple_time:
+            time_list.append(time)
+            time2id[time] = i
+            i += 1
+
+        self.time_list = time_list
+
+        return time2id
+
+    def create_id_labels(self, triple_time, dtype):
+        start_idx = []
+        for time in triple_time:
+            id = self.time2id[time]
+            start_idx.append(id)
+        inp_idx = [i for i in range(len(triple_time))]
+        return inp_idx, start_idx
+
+    def load_data(self):
+        triple_set = []
+        # with open(self.p.triple2id,'r') as filein:
+        # 	for line in filein:
+        # 		tup = (int(line.split()[0].strip()) , int(line.split()[1].strip()), int(line.split()[2].strip()))
+        # 		triple_set.append(tup)
+        with open(self.p.dataset, 'r') as filein11:
+            for line in filein11:
+                tup = (int(line.split()[0].strip()), int(line.split()[1].strip()), int(line.split()[2].strip()))
+                triple_set.append(tup)
+        with open(self.p.test_data, 'r') as filein12:
+            for line in filein12:
+                tup = (int(line.split()[0].strip()), int(line.split()[1].strip()), int(line.split()[2].strip()))
+                triple_set.append(tup)
+        triple_set = set(triple_set)
+
+        train_triples = []
+        self.start_time, self.end_time, self.num_class = ddict(dict), ddict(dict), ddict(dict)
+        triple_time, entity_time = dict(), dict()
+        self.inp_idx, self.start_idx, self.end_idx, self.labels = ddict(list), ddict(list), ddict(list), ddict(list)
+        max_ent, max_rel, count = 0, 0, 0
+
+        with open(self.p.dataset, 'r') as filein:
+            for line in filein:
+                train_triples.append([int(x.strip()) for x in line.split()[0:3]])
+                # triple_time[count] = [x.split('-')[0] for x in line.split()[3:5]]
+                triple_time[count] = int(line.split()[3])
+                count += 1
+
+        # self.start_time['triple'], self.end_time['triple'] = self.create_year2id(triple_time,'triple')
+
+        with open(self.p.stat, 'r') as filein2:
+            for line in filein2:
+                info = line.split()
+                max_ent = int(info[0])
+                max_rel = int(info[1])
+
+        self.time2id = self.create_time2id(triple_time)
+        # self.start_time['entity'], self.end_time['entity'] = self.create_year2id(entity_time,'entiy')
+        # self.inp_idx['entity'],self.start_idx['entity'], self.end_idx['entity'] = self.create_id_labels(entity_time,'entity')
+        self.inp_idx['triple'], self.start_idx['triple'] = self.create_id_labels(triple_time, 'triple')
+        # pdb.set_trace()
+        for i, ele in enumerate(self.inp_idx['entity']):
+            if self.start_idx['entity'][i] > self.end_idx['entity'][i]:
+                print(self.inp_idx['entity'][i], self.start_idx['entity'][i], self.end_idx['entity'][i])
+        self.num_class = len(self.time2id.keys())
+
+        # for dtype in ['entity','triple']:
+        # 	self.labels[dtype] = self.getOneHot(self.start_idx[dtype],self.end_idx[dtype], self.num_class)# Representing labels by one hot notation
+
+        keep_idx = set(self.inp_idx['triple'])
+        for i in range(len(train_triples) - 1, -1, -1):
+            if i not in keep_idx:
+                del train_triples[i]
+
+        index = randint(1, len(train_triples)) - 1
+
+        posh, rela, post = zip(*train_triples)
+        head, rel, tail = zip(*train_triples)
+
+        posh = list(posh)
+        post = list(post)
+        rela = list(rela)
+
+        head = list(head)
+        tail = list(tail)
+        rel = list(rel)
+
+        # for i in range(len(posh)):
+        # 	if self.start_idx['triple'][i] < self.end_idx['triple'][i]:
+        # 		for j in range(self.start_idx['triple'][i] + 1,self.end_idx['triple'][i] + 1):
+        # 			head.append(posh[i])
+        # 			rel.append(rela[i])
+        # 			tail.append(post[i])
+        # 			self.start_idx['triple'].append(j)
+
+        self.ph, self.pt, self.r, self.nh, self.nt, self.triple_time = [], [], [], [], [], []
+        for triple in range(len(head)):
+            neg_set = set()
+            for k in range(self.p.M):
+                possible_head = randint(0, max_ent - 1)
+                while (possible_head, rel[triple], tail[triple]) in triple_set or (
+                possible_head, rel[triple], tail[triple]) in neg_set:
+                    possible_head = randint(0, max_ent - 1)
+                self.nh.append(possible_head)
+                self.nt.append(tail[triple])
+                self.r.append(rel[triple])
+                self.ph.append(head[triple])
+                self.pt.append(tail[triple])
+                self.triple_time.append(self.start_idx['triple'][triple])
+                neg_set.add((possible_head, rel[triple], tail[triple]))
+
+        for triple in range(len(tail)):
+            neg_set = set()
+            for k in range(self.p.M):
+                possible_tail = randint(0, max_ent - 1)
+                while (head[triple], rel[triple], possible_tail) in triple_set or (
+                head[triple], rel[triple], possible_tail) in neg_set:
+                    possible_tail = randint(0, max_ent - 1)
+                self.nh.append(head[triple])
+                self.nt.append(possible_tail)
+                self.r.append(rel[triple])
+                self.ph.append(head[triple])
+                self.pt.append(tail[triple])
+                self.triple_time.append(self.start_idx['triple'][triple])
+                neg_set.add((head[triple], rel[triple], possible_tail))
+
+        # self.triple_time = triple_time
+        # self.entity_time = entity_time
+        self.max_rel = max_rel
+        self.max_ent = max_ent
+        self.max_time = len(self.time2id.keys())
+        self.data = list(zip(self.ph, self.pt, self.r, self.nh, self.nt, self.triple_time))
+        self.data = self.data + self.data[0:self.p.batch_size]
+
+    def add_placeholders(self):
+        self.start_year = tf.placeholder(tf.int32, shape=[None], name='start_time')
+        # self.end_year   = tf.placeholder(tf.int32, shape=[None],name = 'end_time')
+        self.pos_head = tf.placeholder(tf.int32, [None, 1])
+        self.pos_tail = tf.placeholder(tf.int32, [None, 1])
+        self.rel = tf.placeholder(tf.int32, [None, 1])
+        self.neg_head = tf.placeholder(tf.int32, [None, 1])
+        self.neg_tail = tf.placeholder(tf.int32, [None, 1])
+        self.mode = tf.placeholder(tf.int32, shape=())
+        self.pred_mode = tf.placeholder(tf.int32, shape=())
+        self.query_mode = tf.placeholder(tf.int32, shape=())
+
+    def create_feed_dict(self, batch, wLabels=True, dtype='train'):
+        ph, pt, r, nh, nt, start_idx = zip(*batch)
+        feed_dict = {}
+        feed_dict[self.pos_head] = np.array(ph).reshape(-1, 1)
+        feed_dict[self.pos_tail] = np.array(pt).reshape(-1, 1)
+        feed_dict[self.rel] = np.array(r).reshape(-1, 1)
+        feed_dict[self.start_year] = np.array(start_idx)
+        # feed_dict[self.end_year]   = np.array(end_idx)
+        if dtype == 'train':
+            feed_dict[self.neg_head] = np.array(nh).reshape(-1, 1)
+            feed_dict[self.neg_tail] = np.array(nt).reshape(-1, 1)
+            feed_dict[self.mode] = 1
+            feed_dict[self.pred_mode] = 0
+            feed_dict[self.query_mode] = 0
+        else:
+            feed_dict[self.mode] = -1
+
+        return feed_dict
+
+    def time_projection(self, data, t):
+        inner_prod = tf.tile(tf.expand_dims(tf.reduce_sum(data * t, axis=1), axis=1), [1, self.p.inp_dim])
+        prod = t * inner_prod
+        data = data - prod
+        return data
+
+    def add_model(self):
+        # nn_in = self.input_x
+        with tf.name_scope("embedding"):
+            self.ent_embeddings = tf.get_variable(name="ent_embedding", shape=[self.max_ent, self.p.inp_dim],
+                                                  initializer=tf.contrib.layers.xavier_initializer(uniform=False),
+                                                  regularizer=self.regularizer)
+            self.rel_embeddings = tf.get_variable(name="rel_embedding", shape=[self.max_rel, self.p.inp_dim],
+                                                  initializer=tf.contrib.layers.xavier_initializer(uniform=False),
+                                                  regularizer=self.regularizer)
+            self.time_embeddings = tf.get_variable(name="time_embedding", shape=[self.max_time, self.p.inp_dim],
+                                                   initializer=tf.contrib.layers.xavier_initializer(uniform=False))
+
+        transE_in_dim = self.p.inp_dim
+        transE_in = self.ent_embeddings
+        ####################------------------------ time aware GCN MODEL ---------------------------##############
+
+        ## Some transE style model ####
+
+        neutral = tf.constant(0)  ## mode = 1 for train mode = -1 test
+        test_type = tf.constant(0)  ##  pred_mode = 1 for head -1 for tail
+        query_type = tf.constant(0)  ## query mode  =1 for head tail , -1 for rel
+
+        def f_train():
+            pos_h_e = tf.squeeze(tf.nn.embedding_lookup(transE_in, self.pos_head))
+            pos_t_e = tf.squeeze(tf.nn.embedding_lookup(transE_in, self.pos_tail))
+            pos_r_e = tf.squeeze(tf.nn.embedding_lookup(self.rel_embeddings, self.rel))
+            return pos_h_e, pos_t_e, pos_r_e
+
+        def f_test():
+            def head_tail_query():
+                def f_head():
+                    e2 = tf.squeeze(tf.nn.embedding_lookup(transE_in, self.pos_tail))
+                    pos_h_e = transE_in
+                    pos_t_e = tf.reshape(tf.tile(e2, [self.max_ent]), (self.max_ent, transE_in_dim))
+                    return pos_h_e, pos_t_e
+
+                def f_tail():
+                    e1 = tf.squeeze(tf.nn.embedding_lookup(transE_in, self.pos_head))
+                    pos_h_e = tf.reshape(tf.tile(e1, [self.max_ent]), (self.max_ent, transE_in_dim))
+                    pos_t_e = transE_in
+                    return pos_h_e, pos_t_e
+
+                pos_h_e, pos_t_e = tf.cond(self.pred_mode > test_type, f_head, f_tail)
+                r = tf.squeeze(tf.nn.embedding_lookup(self.rel_embeddings, self.rel))
+                pos_r_e = tf.reshape(tf.tile(r, [self.max_ent]), (self.max_ent, transE_in_dim))
+                return pos_h_e, pos_t_e, pos_r_e
+
+            def rel_query():
+                e1 = tf.squeeze(tf.nn.embedding_lookup(transE_in, self.pos_head))
+                e2 = tf.squeeze(tf.nn.embedding_lookup(transE_in, self.pos_tail))
+                pos_h_e = tf.reshape(tf.tile(e1, [self.max_rel]), (self.max_rel, transE_in_dim))
+                pos_t_e = tf.reshape(tf.tile(e2, [self.max_rel]), (self.max_rel, transE_in_dim))
+                pos_r_e = self.rel_embeddings
+                return pos_h_e, pos_t_e, pos_r_e
+
+            pos_h_e, pos_t_e, pos_r_e = tf.cond(self.query_mode > query_type, head_tail_query, rel_query)
+            return pos_h_e, pos_t_e, pos_r_e
+
+        pos_h_e, pos_t_e, pos_r_e = tf.cond(self.mode > neutral, f_train, f_test)
+        neg_h_e = tf.squeeze(tf.nn.embedding_lookup(transE_in, self.neg_head))
+        neg_t_e = tf.squeeze(tf.nn.embedding_lookup(transE_in, self.neg_tail))
+
+        #### ----- time -----###
+        t_1 = tf.squeeze(tf.nn.embedding_lookup(self.time_embeddings, self.start_year))
+
+        pos_h_e_t_1 = self.time_projection(pos_h_e, t_1)
+        neg_h_e_t_1 = self.time_projection(neg_h_e, t_1)
+        pos_t_e_t_1 = self.time_projection(pos_t_e, t_1)
+        neg_t_e_t_1 = self.time_projection(neg_t_e, t_1)
+        pos_r_e_t_1 = self.time_projection(pos_r_e, t_1)
+        # pos_r_e_t_1 = pos_r_e
+
+        if self.p.L1_flag:
+            pos = tf.reduce_sum(abs(pos_h_e_t_1 + pos_r_e_t_1 - pos_t_e_t_1), 1, keep_dims=True)
+            neg = tf.reduce_sum(abs(neg_h_e_t_1 + pos_r_e_t_1 - neg_t_e_t_1), 1, keep_dims=True)
+        # self.predict = pos
+        else:
+            pos = tf.reduce_sum((pos_h_e_t_1 + pos_r_e_t_1 - pos_t_e_t_1) ** 2, 1, keep_dims=True)
+            neg = tf.reduce_sum((neg_h_e_t_1 + pos_r_e_t_1 - neg_t_e_t_1) ** 2, 1, keep_dims=True)
+        # self.predict = pos
+
+        '''
+        debug_nn([self.pred_mode,self.mode], feed_dict = self.create_feed_dict(self.data[0:self.p.batch_size],dtype='test'))
+        '''
+        return pos, neg
+
+    def add_loss(self, pos, neg):
+        with tf.name_scope('Loss_op'):
+            loss = tf.reduce_sum(tf.maximum(pos - neg + self.p.margin, 0))
+            if self.regularizer != None: loss += tf.contrib.layers.apply_regularization(self.regularizer,
+                                                                                        tf.get_collection(
+                                                                                            tf.GraphKeys.REGULARIZATION_LOSSES))
+            return loss
+
+    def add_optimizer(self, loss):
+        with tf.name_scope('Optimizer'):
+            optimizer = tf.train.AdamOptimizer(self.p.lr)
+            train_op = optimizer.minimize(loss)
+        time_normalizer = tf.assign(self.time_embeddings, tf.nn.l2_normalize(self.time_embeddings, dim=1))
+        return train_op
+
+    def __init__(self, params):
+        self.p = params
+        self.p.batch_size = self.p.batch_size
+        if self.p.l2 == 0.0:
+            self.regularizer = None
+        else:
+            self.regularizer = tf.contrib.layers.l2_regularizer(scale=self.p.l2)
+        self.load_data()
+        self.nbatches = len(self.data) // self.p.batch_size
+        self.add_placeholders()
+        self.pos, neg = self.add_model()
+        self.loss = self.add_loss(self.pos, neg)
+        self.train_op = self.add_optimizer(self.loss)
+        self.merged_summ = tf.summary.merge_all()
+        self.summ_writer = None
+        print('model done')
+
+    def run_epoch(self, sess, data, epoch):
+        # sess, ph_addr, pt_addr, r_addr, nh_addr, nt_addr, self.p.batch_size, epoch
+        drop_rate = self.p.dropout
+
+        losses = []
+        # total_correct, total_cnt = 0, 0
+
+        for step, batch in enumerate(self.getBatches(data, shuffle)):
+            feed = self.create_feed_dict(batch)
+            l, a = sess.run([self.loss, self.train_op], feed_dict=feed)
+            # print(l,step)
+            # print(l)
+            losses.append(l)
+        # pdb.set_trace()
+        return np.mean(losses)
+
+    def fit(self, sess):
+        # self.best_val_acc, self.best_train_acc = 0.0, 0.0
+        saver = tf.train.Saver(max_to_keep=None)
+        save_dir = 'checkpoints/' + self.p.data_type + '/'  # + self.p.name + '/'
+        if not os.path.exists(save_dir): os.makedirs(save_dir)
+        save_dir_results = './results/' + self.p.data_type + '/'  # + self.p.name + '/'
+        if not os.path.exists(save_dir_results): os.makedirs(save_dir_results)
+        if self.p.restore:
+            save_path = os.path.join(save_dir, 'epoch_{}'.format(self.p.restore_epoch))
+            saver.restore(sess, save_path)
+
+        print('start fitting')
+
+        validation_data = self.read_valid(self.p.test_data)
+
+        # model_output_head = []
+        # model_output_tail = []
+
+        totalRank = 0
+        totalReRank = 0
+        hit1Count = 0
+        hit3Count = 0
+        hit10Count = 0
+        tripleCount = 0
+
+        for i, t in enumerate(validation_data):
+            loss = np.zeros(self.max_ent)
+            start_trip = t[3]
+            start_lbl = self.time2id[start_trip]
+            pos_head = sess.run(self.pos, feed_dict={self.pos_head: np.array([t[0]]).reshape(-1, 1),
+                                                     self.rel: np.array([t[1]]).reshape(-1, 1),
+                                                     self.pos_tail: np.array([t[2]]).reshape(-1, 1),
+                                                     self.start_year: np.array([start_lbl] * self.max_ent),
+                                                     self.mode: -1,
+                                                     self.pred_mode: 1,
+                                                     self.query_mode: 1})
+            # self.end_year : np.array([end_lbl]*self.max_ent),
+            pos_head = np.squeeze(pos_head)
+
+            pos_tail = sess.run(self.pos, feed_dict={self.pos_head: np.array([t[0]]).reshape(-1, 1),
+                                                     self.rel: np.array([t[1]]).reshape(-1, 1),
+                                                     self.pos_tail: np.array([t[2]]).reshape(-1, 1),
+                                                     self.start_year: np.array([start_lbl] * self.max_ent),
+                                                     self.mode: -1,
+                                                     self.pred_mode: -1,
+                                                     self.query_mode: 1})
+            pos_tail = np.squeeze(pos_tail)
+
+            model_output_head = []
+            model_output_tail = []
+            model_output_head.append(' '.join([str(x) for x in pos_head]) + '\n')
+            model_output_tail.append(' '.join([str(x) for x in pos_tail]) + '\n')
+            # fileout_rel.write(' '.join([str(x) for x in pos_rel]) + '\n')
+
+            model_out_head = []
+            model_out_tail = []
+            count = 0
+            for line in model_output_head:
+                count = 0
+                temp_out = []
+                for ele in line.split():
+                    tup = (float(ele), count)
+                    temp_out.append(tup)
+                    count = count + 1
+                model_out_head.append(temp_out)
+
+            for line in model_output_tail:
+                count = 0
+                temp_out = []
+                for ele in line.split():
+                    tup = (float(ele), count)
+                    temp_out.append(tup)
+                    count = count + 1
+                model_out_tail.append(temp_out)
+
+            for row in model_out_head:
+                row.sort(key=lambda x: x[0])
+
+            for row in model_out_tail:
+                row.sort(key=lambda x: x[0])
+
+            final_out_head, final_out_tail = [], []
+            for row in model_out_head:
+                temp_dict = dict()
+                count = 0
+                for ele in row:
+                    temp_dict[ele[1]] = count
+                    count += 1
+                final_out_head.append(temp_dict)
+
+            for row in model_out_tail:
+                temp_dict = dict()
+                count = 0
+                for ele in row:
+                    temp_dict[ele[1]] = count
+                    count += 1
+                final_out_tail.append(temp_dict)
+
+            ranks_head = []
+            ranks_tail = []
+            # pdb.set_trace()
+            ranks_head.append(final_out_head[0][int(t[0])])
+            ranks_tail.append(final_out_tail[0][int(t[2])])
+
+            re_rankListHead = [1.0 / (x + 1) for x in ranks_head]
+            re_rankListTail = [1.0 / (x + 1) for x in ranks_tail]
+
+            isHit1ListHead = [x for x in ranks_head if x < 1]
+            isHit3ListHead = [x for x in ranks_head if x < 3]
+            isHit10ListHead = [x for x in ranks_head if x < 10]
+
+            isHit1ListTail = [x for x in ranks_tail if x < 1]
+            isHit3ListTail = [x for x in ranks_tail if x < 3]
+            isHit10ListTail = [x for x in ranks_tail if x < 10]
+
+            totalRank += sum(ranks_tail) + sum(ranks_head)
+            totalReRank += sum(re_rankListHead) + sum(re_rankListTail)
+            hit1Count += len(isHit1ListTail) + len(isHit1ListHead)
+            hit3Count += len(isHit3ListTail) + len(isHit3ListHead)
+            hit10Count += len(isHit10ListTail) + len(isHit10ListHead)
+            tripleCount += len(ranks_tail) + len(ranks_head)
+
+
+            if i % 500 == 0:
+                print('{}. no of valid_triples complete'.format(i))
+        print("Validation Ended")
+
+        hit1 = hit1Count / tripleCount
+        hit3 = hit3Count / tripleCount
+        hit10 = hit10Count / tripleCount
+        meanrank = totalRank / tripleCount
+        meanrerank = totalReRank / tripleCount
+        # print('mean rank {}\t test_head rank {}'.format(np.mean(np.array(ranks_tail)) + 1,
+        #                                                             np.mean(np.array(ranks_head)) + 1))
+
+        filename = save_dir_results + 'result.txt'
+        writeList = [filename,
+                     'testSet', '%.6f' % hit1, '%.6f' % hit3, '%.6f' % hit10, '%.6f' % meanrank, '%.6f' % meanrerank]
+
+        with open(filename, 'a') as fw:
+            fw.write('\t'.join(writeList) + '\n')
+
+
+if __name__ == "__main__":
+    print('here in main')
+    parser = argparse.ArgumentParser(description='HyTE')
+
+    parser.add_argument('-data_type', dest="data_type", default='yago',
+                        choices=['yago', 'wiki_data', 'ICEWS18', 'GDELT'], help='dataset to choose')
+    parser.add_argument('-version', dest='version', default='large', choices=['large', 'small'],
+                        help='data version to choose')
+    parser.add_argument('-test_freq', dest="test_freq", default=100, type=int, help='Batch size')
+    parser.add_argument('-neg_sample', dest="M", default=5, type=int, help='Batch size')
+    parser.add_argument('-gpu', dest="gpu", default='1', help='GPU to use')
+    parser.add_argument('-name', dest="name", default='test_' + str(uuid.uuid4()), help='Name of the run')
+    parser.add_argument('-drop', dest="dropout", default=1.0, type=float, help='Dropout for full connected layer')
+    parser.add_argument('-rdrop', dest="rec_dropout", default=1.0, type=float, help='Recurrent dropout for LSTM')
+    parser.add_argument('-lr', dest="lr", default=0.0001, type=float, help='Learning rate')
+    parser.add_argument('-lam_1', dest="lambda_1", default=0.5, type=float, help='transE weight')
+    parser.add_argument('-lam_2', dest="lambda_2", default=0.25, type=float, help='entitty loss weight')
+    parser.add_argument('-margin', dest="margin", default=1, type=float, help='margin')
+    parser.add_argument('-batch', dest="batch_size", default=50000, type=int, help='Batch size')
+    parser.add_argument('-epoch', dest="max_epochs", default=5000, type=int, help='Max epochs')
+    parser.add_argument('-l2', dest="l2", default=0.0, type=float, help='L2 regularization')
+    parser.add_argument('-seed', dest="seed", default=1234, type=int, help='Seed for randomization')
+    parser.add_argument('-inp_dim', dest="inp_dim", default=128, type=int, help='Hidden state dimension of Bi-LSTM')
+    parser.add_argument('-L1_flag', dest="L1_flag", action='store_false', help='Hidden state dimension of FC layer')
+    parser.add_argument('-onlytransE', dest="onlytransE", action='store_true',
+                        help='Evaluate model on only transE loss')
+    parser.add_argument('-restore', dest="restore", action='store_true',
+                        help='Restore from the previous best saved model')
+    parser.add_argument('-res_epoch', dest="restore_epoch", default=200, type=int,
+                        help='Restore from the previous best saved model')
+    # parser.add_argument('-test', dest="test", default=0, type=int, help='only test model')
+    args = parser.parse_args()
+    if args.data_type == 'yago' or args.data_type == 'wiki_data':
+        args.dataset = 'data/' + args.data_type + '/' + args.version + '/train.txt'
+        # args.entity2id = 'data/'+ args.data_type +'/'+ args.version+'/entity2id.txt'
+        # args.relation2id = 'data/'+ args.data_type +'/'+ args.version+'/relation2id.txt'
+        args.test_data = 'data/' + args.data_type + '/' + args.version + '/valid.txt'
+        args.triple2id = 'data/' + args.data_type + '/' + args.version + '/triple2id.txt'
+    else:
+        args.stat = 'data/' + args.data_type + '/stat.txt'
+        args.dataset = 'data/' + args.data_type + '/train2id.txt'
+        # args.test_data = 'data/' + args.data_type + '/valid2id.txt'
+        args.test_data = 'data/' + args.data_type + '/test2id.txt'
+        # args.stat = 'data/ICEWS18_prev/stat.txt'
+        # args.dataset = 'data/ICEWS18_prev/train.txt'
+        # args.test_data = 'data/ICEWS18_prev/test.txt'
+    if not args.restore: args.name = args.name + '_' + time.strftime("%d_%m_%Y") + '_' + time.strftime("%H:%M:%S")
+    tf.set_random_seed(args.seed)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    set_gpu(args.gpu)
+    model = HyTE(args)
+    print('model object created')
+    # config = tf.ConfigProto(log_device_placement=True, allow_soft_placement=True)
+    config = tf.ConfigProto()
+    # config.gpu_options.allow_growth=True
+    # with tf.device('/gpu:1'):
+    with tf.Session(config=config) as sess:
+        sess.run(tf.global_variables_initializer())
+        print('enter fitting')
+        model.fit(sess)

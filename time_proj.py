@@ -11,8 +11,8 @@ import tensorflow as tf
 from collections import defaultdict as ddict
 #from pymongo import MongoClient
 from sklearn.metrics import precision_recall_fscore_support
-YEARMIN = -50
-YEARMAX = 3000
+# YEARMIN = -50
+# YEARMAX = 3000
 class HyTE(Model):
 	def read_valid(self,filename):
 		valid_triples = []
@@ -375,9 +375,12 @@ class HyTE(Model):
 				if epoch == self.p.test_freq:
 					f_valid  = open(save_dir_results  +'/valid.txt','w')
 				
-				fileout_head = open(save_dir_results +'/valid_head_pred_{}.txt'.format(epoch),'w')
-				fileout_tail = open(save_dir_results +'/valid_tail_pred_{}.txt'.format(epoch),'w')
-				fileout_rel  = open(save_dir_results +'/valid_rel_pred_{}.txt'.format(epoch), 'w')
+				# fileout_head = open(save_dir_results +'/valid_head_pred_{}.txt'.format(epoch),'w')
+				# fileout_tail = open(save_dir_results +'/valid_tail_pred_{}.txt'.format(epoch),'w')
+				# fileout_rel  = open(save_dir_results +'/valid_rel_pred_{}.txt'.format(epoch), 'w')
+				fileout_head = open(save_dir_results + '/valid_head_pred.txt', 'w')
+				fileout_tail = open(save_dir_results + '/valid_tail_pred.txt', 'w')
+				fileout_rel = open(save_dir_results + '/valid_rel_pred.txt', 'w')
 				for i,t in enumerate(validation_data):
 					loss =np.zeros(self.max_ent)
 					# start_trip 	= t[3][0].split('-')[0]
@@ -447,7 +450,7 @@ if __name__== "__main__":
 
 	parser.add_argument('-data_type', dest= "data_type", default ='yago', choices = ['yago','wiki_data', 'ICEWS18', 'GDELT'], help ='dataset to choose')
 	parser.add_argument('-version',dest = 'version', default = 'large', choices = ['large','small'], help = 'data version to choose')
-	parser.add_argument('-test_freq', 	 dest="test_freq", 	default = 25,   	type=int, 	help='Batch size')
+	parser.add_argument('-test_freq', 	 dest="test_freq", 	default = 100,   	type=int, 	help='Batch size')
 	parser.add_argument('-neg_sample', 	 dest="M", 		default = 5,   	type=int, 	help='Batch size')
 	parser.add_argument('-gpu', 	 dest="gpu", 		default='1',			help='GPU to use')
 	parser.add_argument('-name', 	 dest="name", 		default='test_'+str(uuid.uuid4()),help='Name of the run')
@@ -486,7 +489,7 @@ if __name__== "__main__":
 	print('model object created')
 	# config = tf.ConfigProto(log_device_placement=True, allow_soft_placement=True)
 	config = tf.ConfigProto()
-	config.gpu_options.allow_growth=True
+	# config.gpu_options.allow_growth=True
 	# with tf.device('/gpu:1'):
 	with tf.Session(config=config) as sess:
 		sess.run(tf.global_variables_initializer())

@@ -2,7 +2,7 @@ import numpy as np
 import argparse,pdb
 parser = argparse.ArgumentParser(description='Eval model outputs')
 parser.add_argument('-dataset', 	 	dest = "dataset", required=True,				help='Dataset to use')
-parser.add_argument('-epoch', 	 	dest = "epoch", required=True,				help='epoch to use')
+# parser.add_argument('-epoch', 	 	dest = "epoch", required=True,				help='epoch to use')
 # parser.add_argument('-model', 	 	dest = "model", required=True,				help='Dataset to use')
 # parser.add_argument('-test_freq', 	dest = "freq", 	required=True,	type =int,  help='what is to be predicted')
 
@@ -12,12 +12,14 @@ args = parser.parse_args()
 
 	
 # print(args.model)
-k = args.epoch
+# k = args.epoch
 save_dir_results = './results/' + args.dataset + '/'
 # for k in range(args.freq,30000,args.freq):
 valid_output = open(save_dir_results +'/valid.txt')
-model_output_head = open(save_dir_results+'/valid_head_pred_{}.txt'.format(k))
-model_output_tail = open(save_dir_results+'/valid_tail_pred_{}.txt'.format(k))
+# model_output_head = open(save_dir_results+'/valid_head_pred_{}.txt'.format(k))
+# model_output_tail = open(save_dir_results+'/valid_tail_pred_{}.txt'.format(k))
+model_output_head = open(save_dir_results+'/valid_head_pred.txt')
+model_output_tail = open(save_dir_results+'/valid_tail_pred.txt')
 model_out_head = []
 model_out_tail = []
 count = 0
