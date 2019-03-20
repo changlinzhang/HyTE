@@ -12,9 +12,7 @@ from collections import defaultdict as ddict
 # from pymongo import MongoClient
 from sklearn.metrics import precision_recall_fscore_support
 
-YEARMIN = -50
-YEARMAX = 3000
-
+filter = 1
 
 class HyTE(Model):
     def read_valid(self, filename):
@@ -360,7 +358,10 @@ class HyTE(Model):
         save_dir_results = './results/' + self.p.data_type + '/'  # + self.p.name + '/'
         if not os.path.exists(save_dir_results): os.makedirs(save_dir_results)
         if self.p.restore:
-            save_path = os.path.join(save_dir, 'epoch_{}'.format(self.p.restore_epoch))
+            if filter == 1:
+                save_path = os.path.join(save_dir, 'epoch_{}'.format(self.p.restore_epoch))
+            else:
+                save_path = os.path.join(save_dir, 'raw_epoch_{}'.format(self.p.restore_epoch))
             saver.restore(sess, save_path)
 
         print('start fitting')
@@ -378,6 +379,8 @@ class HyTE(Model):
         tripleCount = 0
 
         for i, t in enumerate(validation_data):
+            if self.p.test_size != 0 and i >= self.p.test_size:
+                break
             loss = np.zeros(self.max_ent)
             start_trip = t[3]
             start_lbl = self.time2id[start_trip]
@@ -487,7 +490,10 @@ class HyTE(Model):
         # print('mean rank {}\t test_head rank {}'.format(np.mean(np.array(ranks_tail)) + 1,
         #                                                             np.mean(np.array(ranks_head)) + 1))
 
-        filename = save_dir_results + 'result.txt'
+        if filter:
+            filename = save_dir_results + 'result.txt'
+        else:
+            filename = save_dir_results + 'raw_result.txt'
         writeList = [filename,
                      'testSet', '%.6f' % hit1, '%.6f' % hit3, '%.6f' % hit10, '%.6f' % meanrank, '%.6f' % meanrerank]
 
@@ -525,8 +531,10 @@ if __name__ == "__main__":
                         help='Restore from the previous best saved model')
     parser.add_argument('-res_epoch', dest="restore_epoch", default=200, type=int,
                         help='Restore from the previous best saved model')
-    # parser.add_argument('-test', dest="test", default=0, type=int, help='only test model')
+    parser.add_argument('-test_size', dest="test_size", default=0, type=int, help='test part of testdata')
+    parser.add_argument('-f', dest="filter", default=1, type=int, help='filter')
     args = parser.parse_args()
+    filter = args.filter
     if args.data_type == 'yago' or args.data_type == 'wiki_data':
         args.dataset = 'data/' + args.data_type + '/' + args.version + '/train.txt'
         # args.entity2id = 'data/'+ args.data_type +'/'+ args.version+'/entity2id.txt'
@@ -536,8 +544,8 @@ if __name__ == "__main__":
     else:
         args.stat = 'data/' + args.data_type + '/stat.txt'
         args.dataset = 'data/' + args.data_type + '/train2id.txt'
-        # args.test_data = 'data/' + args.data_type + '/valid2id.txt'
-        args.test_data = 'data/' + args.data_type + '/test2id.txt'
+        args.test_data = 'data/' + args.data_type + '/valid2id.txt'
+        # args.test_data = 'data/' + args.data_type + '/test2id.txt'
         # args.stat = 'data/ICEWS18_prev/stat.txt'
         # args.dataset = 'data/ICEWS18_prev/train.txt'
         # args.test_data = 'data/ICEWS18_prev/test.txt'
