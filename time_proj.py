@@ -14,6 +14,7 @@ from sklearn.metrics import precision_recall_fscore_support
 # YEARMIN = -50
 # YEARMAX = 3000
 filter = 1
+best_mr = 0
 class HyTE(Model):
 	def read_valid(self,filename):
 		valid_triples = []
@@ -374,6 +375,136 @@ class HyTE(Model):
 				else:
 					save_path = os.path.join(save_dir, 'raw_epoch_{}'.format(epoch))
 				saver.save(sess=sess, save_path=save_path)
+
+				validation_data = self.read_valid(self.p.test_data)
+
+				# model_output_head = []
+				# model_output_tail = []
+
+				totalRank = 0
+				totalReRank = 0
+				hit1Count = 0
+				hit3Count = 0
+				hit10Count = 0
+				tripleCount = 0
+
+				for i, t in enumerate(validation_data):
+					loss = np.zeros(self.max_ent)
+					start_trip = t[3]
+					start_lbl = self.time2id[start_trip]
+					pos_head = sess.run(self.pos, feed_dict={self.pos_head: np.array([t[0]]).reshape(-1, 1),
+															 self.rel: np.array([t[1]]).reshape(-1, 1),
+															 self.pos_tail: np.array([t[2]]).reshape(-1, 1),
+															 self.start_year: np.array([start_lbl] * self.max_ent),
+															 self.mode: -1,
+															 self.pred_mode: 1,
+															 self.query_mode: 1})
+					# self.end_year : np.array([end_lbl]*self.max_ent),
+					pos_head = np.squeeze(pos_head)
+
+					pos_tail = sess.run(self.pos, feed_dict={self.pos_head: np.array([t[0]]).reshape(-1, 1),
+															 self.rel: np.array([t[1]]).reshape(-1, 1),
+															 self.pos_tail: np.array([t[2]]).reshape(-1, 1),
+															 self.start_year: np.array([start_lbl] * self.max_ent),
+															 self.mode: -1,
+															 self.pred_mode: -1,
+															 self.query_mode: 1})
+					pos_tail = np.squeeze(pos_tail)
+
+					model_output_head = []
+					model_output_tail = []
+					model_output_head.append(' '.join([str(x) for x in pos_head]) + '\n')
+					model_output_tail.append(' '.join([str(x) for x in pos_tail]) + '\n')
+					# fileout_rel.write(' '.join([str(x) for x in pos_rel]) + '\n')
+
+					model_out_head = []
+					model_out_tail = []
+					count = 0
+					for line in model_output_head:
+						count = 0
+						temp_out = []
+						for ele in line.split():
+							tup = (float(ele), count)
+							temp_out.append(tup)
+							count = count + 1
+						model_out_head.append(temp_out)
+
+					for line in model_output_tail:
+						count = 0
+						temp_out = []
+						for ele in line.split():
+							tup = (float(ele), count)
+							temp_out.append(tup)
+							count = count + 1
+						model_out_tail.append(temp_out)
+
+					for row in model_out_head:
+						row.sort(key=lambda x: x[0])
+
+					for row in model_out_tail:
+						row.sort(key=lambda x: x[0])
+
+					final_out_head, final_out_tail = [], []
+					for row in model_out_head:
+						temp_dict = dict()
+						count = 0
+						for ele in row:
+							temp_dict[ele[1]] = count
+							count += 1
+						final_out_head.append(temp_dict)
+
+					for row in model_out_tail:
+						temp_dict = dict()
+						count = 0
+						for ele in row:
+							temp_dict[ele[1]] = count
+							count += 1
+						final_out_tail.append(temp_dict)
+
+					ranks_head = []
+					ranks_tail = []
+					# pdb.set_trace()
+					ranks_head.append(final_out_head[0][int(t[0])])
+					ranks_tail.append(final_out_tail[0][int(t[2])])
+
+					re_rankListHead = [1.0 / (x + 1) for x in ranks_head]
+					re_rankListTail = [1.0 / (x + 1) for x in ranks_tail]
+
+					isHit1ListHead = [x for x in ranks_head if x < 1]
+					isHit3ListHead = [x for x in ranks_head if x < 3]
+					isHit10ListHead = [x for x in ranks_head if x < 10]
+
+					isHit1ListTail = [x for x in ranks_tail if x < 1]
+					isHit3ListTail = [x for x in ranks_tail if x < 3]
+					isHit10ListTail = [x for x in ranks_tail if x < 10]
+
+					totalRank += sum(ranks_tail) + sum(ranks_head)
+					totalReRank += sum(re_rankListHead) + sum(re_rankListTail)
+					hit1Count += len(isHit1ListTail) + len(isHit1ListHead)
+					hit3Count += len(isHit3ListTail) + len(isHit3ListHead)
+					hit10Count += len(isHit10ListTail) + len(isHit10ListHead)
+					tripleCount += len(ranks_tail) + len(ranks_head)
+
+					if i % 500 == 0:
+						print('{}. no of valid_triples complete'.format(i))
+
+				hit1 = hit1Count / tripleCount
+				hit3 = hit3Count / tripleCount
+				hit10 = hit10Count / tripleCount
+				meanrank = totalRank / tripleCount
+				meanrerank = totalReRank / tripleCount
+				if epoch == self.p.test_freq:
+					best_mr = meanrank
+				else:
+					if best_mr > meanrank:
+						best_mr = meanrank
+					else:
+						break
+						# count += 1
+						# if count > 10:
+						# 	break
+
+				print("Validation Ended")
 
 
 if __name__== "__main__":
